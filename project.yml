@@ -1,6 +1,7 @@
 name: MenInBlueLive
 options:
   bundleIdPrefix: com.rishabmadan
+  xcodeVersion: "15.4"
   deploymentTarget:
     iOS: "16.1"
 targets:
