@@ -3,20 +3,24 @@ options:
   bundleIdPrefix: com.rishabmadan
   xcodeVersion: "15.4"
   deploymentTarget:
-    iOS: "16.1"
+    iOS: "16.2"
 targets:
   MenInBlueLive:
     type: application
     platform: iOS
+    deploymentTarget: "16.2"
     sources: 
       - iOS/MenInBlueLive
-      - iOS/MenInBlueLiveWidget/CricketWidget.swift
     info:
       path: iOS/MenInBlueLive/Info.plist
+    dependencies:
+      - target: MenInBlueLiveWidget
   MenInBlueLiveWidget:
     type: app-extension
     platform: iOS
+    deploymentTarget: "16.2"
     sources: 
       - iOS/MenInBlueLiveWidget
+      - iOS/MenInBlueLive/LiveScoreManager.swift
     info:
       path: iOS/MenInBlueLive/Info.plist
