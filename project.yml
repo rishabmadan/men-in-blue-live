@@ -1,0 +1,21 @@
+name: MenInBlueLive
+options:
+  bundleIdPrefix: com.rishabmadan
+  deploymentTarget:
+    iOS: "16.1"
+targets:
+  MenInBlueLive:
+    type: application
+    platform: iOS
+    sources: 
+      - iOS/MenInBlueLive
+      - iOS/MenInBlueLiveWidget/CricketWidget.swift
+    info:
+      path: iOS/MenInBlueLive/Info.plist
+  MenInBlueLiveWidget:
+    type: app-extension
+    platform: iOS
+    sources: 
+      - iOS/MenInBlueLiveWidget
+    info:
+      path: iOS/MenInBlueLive/Info.plist
