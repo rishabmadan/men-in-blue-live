@@ -21,6 +21,6 @@ targets:
     deploymentTarget: "16.2"
     sources: 
       - iOS/MenInBlueLiveWidget
-      - iOS/MenInBlueLive/LiveScoreManager.swift
+      - iOS/MenInBlueLive/CricketMatchAttributes.swift
     info:
       path: iOS/MenInBlueLive/Info.plist
