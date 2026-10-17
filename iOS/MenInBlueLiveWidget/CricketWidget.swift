@@ -3,44 +3,12 @@ import WidgetKit
 import SwiftUI
 import Foundation
 
-// MARK: - Activity Attributes & Content State
-
-public struct CricketMatchAttributes: ActivityAttributes {
-    public struct ContentState: Codable, Hashable {
-        public var scoreString: String        // e.g., "184/4"
-        public var oversString: String        // e.g., "(18.2)"
-        public var currentRunRate: String     // e.g., "CRR: 10.04"
-        public var statusMessage: String      // e.g., "IND needs 12 off 10 balls"
-        
-        public init(scoreString: String, oversString: String, currentRunRate: String, statusMessage: String) {
-            self.scoreString = scoreString
-            self.oversString = oversString
-            self.currentRunRate = currentRunRate
-            self.statusMessage = statusMessage
-        }
-    }
-    
-    // Fixed non-changing match metadata
-    public var homeTeam: String               // e.g., "IND" or "India"
-    public var awayTeam: String               // e.g., "AUS" or "Australia"
-    public var matchType: String              // e.g., "T20I", "ODI", "TEST"
-    
-    public init(homeTeam: String, awayTeam: String, matchType: String) {
-        self.homeTeam = homeTeam
-        self.awayTeam = awayTeam
-        self.matchType = matchType
-    }
-}
-
-// MARK: - Widget & Dynamic Island Implementation
-
 @main
 struct CricketWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: CricketMatchAttributes.self) { context in
             // MARK: Lock Screen & StandBy Mode Banner
             HStack(spacing: 14) {
-                // Left Column: Match Details & Teams
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(context.attributes.matchType)
@@ -73,7 +41,6 @@ struct CricketWidget: Widget {
                 
                 Spacer()
                 
-                // Right Column: Live Score & Run Rate
                 VStack(alignment: .trailing, spacing: 2) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
                         Text(context.state.scoreString)
@@ -98,7 +65,6 @@ struct CricketWidget: Widget {
             
         } dynamicIsland: { context in
             DynamicIsland {
-                // MARK: Expanded Dynamic Island
                 DynamicIslandExpandedRegion(.leading) {
                     VStack(alignment: .leading, spacing: 2) {
                         HStack(spacing: 4) {
@@ -148,7 +114,6 @@ struct CricketWidget: Widget {
                     .padding(.top, 4)
                 }
             } compactLeading: {
-                // MARK: Compact Leading
                 HStack(spacing: 3) {
                     Text("🇮🇳")
                         .font(.system(size: 12))
@@ -157,12 +122,10 @@ struct CricketWidget: Widget {
                         .foregroundColor(.white)
                 }
             } compactTrailing: {
-                // MARK: Compact Trailing
                 Text(context.state.scoreString)
                     .font(.system(size: 12, weight: .heavy, design: .rounded))
                     .foregroundColor(Color(red: 0.2, green: 0.9, blue: 0.4))
             } minimal: {
-                // MARK: Minimal Presentation
                 Text("🏏")
                     .font(.system(size: 12))
             }
