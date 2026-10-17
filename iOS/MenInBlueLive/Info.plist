@@ -6,7 +6,6 @@
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	
-	
 	<!-- Optional: Enables frequent high-cadence push updates (up to several times per minute) -->
 	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
 	<true/>
