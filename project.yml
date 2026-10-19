@@ -16,8 +16,11 @@ targets:
         GENERATE_INFOPLIST_FILE: false
         INFOPLIST_FILE: iOS/MenInBlueLive/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.rishabmadan.MenInBlueLive
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
     info:
       path: iOS/MenInBlueLive/Info.plist
+      properties:
+        NSSupportsLiveActivities: true
     dependencies:
       - target: MenInBlueLiveWidget
   MenInBlueLiveWidget:
@@ -32,8 +35,10 @@ targets:
         GENERATE_INFOPLIST_FILE: false
         INFOPLIST_FILE: iOS/MenInBlueLiveWidget/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.rishabmadan.MenInBlueLive.widget
+        INFOPLIST_KEY_NSSupportsLiveActivities: YES
     info:
       path: iOS/MenInBlueLiveWidget/Info.plist
       properties:
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
+        NSSupportsLiveActivities: true
