@@ -11,6 +11,11 @@ targets:
     deploymentTarget: "16.2"
     sources: 
       - iOS/MenInBlueLive
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: false
+        INFOPLIST_FILE: iOS/MenInBlueLive/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.rishabmadan.MenInBlueLive
     info:
       path: iOS/MenInBlueLive/Info.plist
     dependencies:
@@ -22,5 +27,13 @@ targets:
     sources: 
       - iOS/MenInBlueLiveWidget
       - iOS/MenInBlueLive/CricketMatchAttributes.swift
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: false
+        INFOPLIST_FILE: iOS/MenInBlueLiveWidget/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.rishabmadan.MenInBlueLive.widget
     info:
       path: iOS/MenInBlueLiveWidget/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
