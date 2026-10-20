@@ -85,7 +85,7 @@ public class LiveScoreManager: ObservableObject {
     
     private func fetchAndRefreshScore() {
         // REPLACE THIS URL with your live Vercel domain
-        guard let url = URL(string: "https://your-vercel-domain.vercel.app/api/cron-update") else { return }
+        guard let url = URL(string: "https://men-in-blue-live-dopx2-weld.vercel.app/api/cron-update") else { return }
         var request = URLRequest(url: url)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 10.0
