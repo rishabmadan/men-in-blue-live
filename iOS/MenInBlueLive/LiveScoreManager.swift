@@ -56,7 +56,7 @@ public class LiveScoreManager: ObservableObject {
             scoreString: "0/0",
             oversString: "(0.0)",
             currentRunRate: "CRR: 0.00",
-            statusMessage: "Starting Men in Blue Live...",
+            statusMessage: "Connecting to Cricbuzz...",
             lastEvent: nil,
             recentBalls: [],
             homeTeam: home,
@@ -85,7 +85,7 @@ public class LiveScoreManager: ObservableObject {
         }
     }
     
-    // MARK: - Live Score Polling from Cricbuzz
+    // MARK: - Live Score Polling from Cricbuzz (Case-Insensitive & Multi-Team)
     
     private func fetchAndRefreshScore() {
         guard let url = URL(string: "https://www.cricbuzz.com/api/cricket-match/live-scores") else { return }
@@ -104,15 +104,32 @@ public class LiveScoreManager: ObservableObject {
                     let wrapper = series["seriesAdWrapper"] as? [String: Any] ?? [:]
                     for match in wrapper["matches"] as? [[String: Any]] ?? [] {
                         let info = match["matchInfo"] as? [String: Any] ?? [:]
-                        let t1 = (info["team1"] as? [String: Any])?["teamSName"] as? String ?? ""
-                        let t2 = (info["team2"] as? [String: Any])?["teamSName"] as? String ?? ""
+                        let t1Raw = (info["team1"] as? [String: Any])?["teamSName"] as? String ?? ""
+                        let t2Raw = (info["team2"] as? [String: Any])?["teamSName"] as? String ?? ""
+                        let t1NameRaw = (info["team1"] as? [String: Any])?["teamName"] as? String ?? ""
+                        let t2NameRaw = (info["team2"] as? [String: Any])?["teamName"] as? String ?? ""
                         
-                        // Check if India is involved
-                        if t1.contains("IND") || t2.contains("IND") {
+                        let t1 = t1Raw.uppercased()
+                        let t2 = t2Raw.uppercased()
+                        let t1Name = t1NameRaw.uppercased()
+                        let t2Name = t2NameRaw.uppercased()
+                        
+                        // Case-insensitive check: matches IND, INDW, Ind-W, India Women
+                        let isIndia = t1.contains("IND") || t2.contains("IND") ||
+                                      t1Name.contains("IND") || t2Name.contains("IND")
+                        
+                        if isIndia {
                             let scores = match["matchScore"] as? [String: Any] ?? [:]
-                            let isT1India = t1.contains("IND")
-                            let teamScore = (isT1India ? scores["team1Score"] : scores["team2Score"]) as? [String: Any]
-                            let inngs = (teamScore?["inngs2"] ?? teamScore?["inngs1"]) as? [String: Any] ?? [:]
+                            let s1 = scores["team1Score"] as? [String: Any]
+                            let s2 = scores["team2Score"] as? [String: Any]
+                            
+                            // Pick the team that is currently batting or has active innings
+                            let s1Inngs = (s1?["inngs2"] as? [String: Any]) ?? (s1?["inngs1"] as? [String: Any])
+                            let s2Inngs = (s2?["inngs2"] as? [String: Any]) ?? (s2?["inngs1"] as? [String: Any])
+                            
+                            // Determine active batting innings
+                            let activeInngs = s2Inngs != nil ? s2Inngs : (s1Inngs ?? [:])
+                            let inngs = activeInngs ?? [:]
                             
                             let runs = inngs["runs"] as? Int ?? 0
                             let wickets = inngs["wickets"] as? Int ?? 0
@@ -120,12 +137,17 @@ public class LiveScoreManager: ObservableObject {
                             let status = info["status"] as? String ?? "Match Live"
                             let crr = overs > 0 ? String(format: "CRR: %.2f", Double(runs) / overs) : "CRR: 0.00"
                             
-                            // Multi-innings display for Test matches
+                            // Multi-innings display for Tests
                             var scoreText = "\(runs)/\(wickets)"
-                            if let s1 = teamScore?["inngs1"] as? [String: Any], teamScore?["inngs2"] != nil {
-                                let r1 = s1["runs"] as? Int ?? 0
+                            if let teamScore = (s2Inngs != nil ? s2 : s1),
+                               let firstInngs = teamScore?["inngs1"] as? [String: Any],
+                               teamScore?["inngs2"] != nil {
+                                let r1 = firstInngs["runs"] as? Int ?? 0
                                 scoreText = "\(r1) & \(runs)/\(wickets)"
                             }
+                            
+                            let displayT1 = t1Raw.isEmpty ? "IND" : t1Raw
+                            let displayT2 = t2Raw.isEmpty ? "OPP" : t2Raw
                             
                             let newState = CricketMatchAttributes.ContentState(
                                 scoreString: scoreText,
@@ -134,10 +156,10 @@ public class LiveScoreManager: ObservableObject {
                                 statusMessage: status,
                                 lastEvent: nil,
                                 recentBalls: [],
-                                homeTeam: t1,
-                                awayTeam: t2,
-                                homeFlag: self.flagForTeam(t1),
-                                awayFlag: self.flagForTeam(t2)
+                                homeTeam: displayT1,
+                                awayTeam: displayT2,
+                                homeFlag: self.flagForTeam(displayT1),
+                                awayFlag: self.flagForTeam(displayT2)
                             )
                             
                             Task {
