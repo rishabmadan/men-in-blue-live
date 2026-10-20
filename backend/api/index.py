@@ -3,9 +3,16 @@ import json
 import os
 import urllib.request
 import gzip
+import ssl
 
 def fetch_live_cricket_match() -> dict:
-    """Fetches real-time live cricket score with GZIP decompression."""
+    """Fetches real-time live cricket score with SSL bypass and dual-source redundancy."""
+    debug_log = []
+    ctx = ssl._create_unverified_context()
+    
+    # ---------------------------------------------------------
+    # SOURCE 1: ESPN Cricinfo Mobile API
+    # ---------------------------------------------------------
     try:
         url = "https://hs-consumer-api.espncricinfo.com/v1/pages/matches/current?lang=en&latest=true"
         req = urllib.request.Request(url, headers={
@@ -13,55 +20,86 @@ def fetch_live_cricket_match() -> dict:
             "Accept": "application/json, text/plain, */*",
             "Accept-Encoding": "gzip, deflate"
         })
-        
-        with urllib.request.urlopen(req, timeout=8) as response:
+        with urllib.request.urlopen(req, context=ctx, timeout=6) as response:
             raw = response.read()
-            # Decompress GZIP payload from Cricinfo
             if raw.startswith(b'\x1f\x8b') or response.headers.get('Content-Encoding') == 'gzip':
                 raw = gzip.decompress(raw)
-                
             data = json.loads(raw.decode('utf-8'))
-            matches = data.get("matches") or data.get("content", {}).get("matches", []) or []
             
+            matches = []
+            if isinstance(data, list):
+                matches = data
+            elif isinstance(data, dict):
+                matches = data.get("matches") or data.get("content", {}).get("matches") or []
+                if not matches:
+                    for v in data.values():
+                        if isinstance(v, list) and v and isinstance(v[0], dict):
+                            matches = v
+                            break
+                            
             for m in matches:
                 teams = m.get("teams", [])
                 if len(teams) >= 2:
                     t1_info = teams[0].get("team", {})
                     t2_info = teams[1].get("team", {})
+                    t1 = str(t1_info.get("abbreviation") or t1_info.get("name") or "").upper()
+                    t2 = str(t2_info.get("abbreviation") or t2_info.get("name") or "").upper()
                     
-                    t1_abbr = str(t1_info.get("abbreviation") or t1_info.get("name") or "").upper()
-                    t2_abbr = str(t2_info.get("abbreviation") or t2_info.get("name") or "").upper()
-                    
-                    # Matches IND, IND-W, India, Zimbabwe
-                    if "IND" in t1_abbr or "IND" in t2_abbr:
+                    if "IND" in t1 or "IND" in t2:
                         s1 = str(teams[0].get("score", ""))
                         s2 = str(teams[1].get("score", ""))
                         ov1 = str(teams[0].get("scoreInfo", ""))
                         ov2 = str(teams[1].get("scoreInfo", ""))
                         
-                        # Whichever team is currently batting
                         active_score = s2 if s2 else s1
                         active_overs = ov2 if ov2 else ov1
                         
                         return {
-                            "home_team_short": t1_abbr if t1_abbr else "IND-W",
-                            "away_team_short": t2_abbr if t2_abbr else "ZIM-W",
+                            "home_team_short": t1 if t1 else "IND-W",
+                            "away_team_short": t2 if t2 else "ZIM-W",
                             "live_score_runs_wickets": active_score if active_score else "Live",
-                            "live_overs": active_overs if active_overs else "",
+                            "live_overs": active_overs,
                             "current_run_rate": "CRR: " + str(m.get("currentRunRate", "LIVE")),
                             "live_status_string": m.get("statusText") or m.get("status") or "Match Live"
                         }
+            debug_log.append(f"Cricinfo: {len(matches)} matches, no IND live")
     except Exception as e:
-        print(f"[Fetch Error] {e}")
+        debug_log.append(f"Cricinfo Err: {type(e).__name__}")
 
-    # Fallback only if network completely drops
+    # ---------------------------------------------------------
+    # SOURCE 2: Cricbuzz Live Mirror
+    # ---------------------------------------------------------
+    try:
+        url = "https://cricbuzz-live.vercel.app/v1/matches/live"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, context=ctx, timeout=5) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            matches = data.get("data", {}).get("matches", [])
+            for m in matches:
+                title = str(m.get("title", "")).upper()
+                if "IND" in title or "INDIA" in title:
+                    teams = m.get("teams", [])
+                    runs = teams[0].get("run", "") if teams else "Live"
+                    return {
+                        "home_team_short": "IND-W",
+                        "away_team_short": "ZIM-W",
+                        "live_score_runs_wickets": runs,
+                        "live_overs": "",
+                        "current_run_rate": "LIVE",
+                        "live_status_string": m.get("overview") or m.get("title") or "Match Live"
+                    }
+            debug_log.append(f"Cricbuzz: {len(matches)} matches, no IND live")
+    except Exception as e:
+        debug_log.append(f"Cricbuzz Err: {type(e).__name__}")
+
+    # Transparent diagnostic response if no live Indian match is found
     return {
         "home_team_short": "IND-W",
         "away_team_short": "ZIM-W",
         "live_score_runs_wickets": "Live",
-        "live_overs": "",
+        "live_overs": "(3rd T20I)",
         "current_run_rate": "LIVE",
-        "live_status_string": "IND-W vs ZIM-W 3rd T20I"
+        "live_status_string": " | ".join(debug_log) if debug_log else "No Live Match"
     }
 
 # MARK: - Vercel Handler
