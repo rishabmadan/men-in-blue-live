@@ -11,6 +11,8 @@ public struct CricketMatchAttributes: ActivityAttributes {
         public var awayTeam: String
         public var homeFlag: String
         public var awayFlag: String
+        public var lastEvent: String?
+        public var recentBalls: [String]
 
         public init(
             scoreString: String,
@@ -20,7 +22,9 @@ public struct CricketMatchAttributes: ActivityAttributes {
             homeTeam: String = "IND",
             awayTeam: String = "AUS",
             homeFlag: String = "🇮🇳",
-            awayFlag: String = "🇦🇺"
+            awayFlag: String = "🇦🇺",
+            lastEvent: String? = nil,
+            recentBalls: [String] = []
         ) {
             self.scoreString = scoreString
             self.oversString = oversString
@@ -30,6 +34,8 @@ public struct CricketMatchAttributes: ActivityAttributes {
             self.awayTeam = awayTeam
             self.homeFlag = homeFlag
             self.awayFlag = awayFlag
+            self.lastEvent = lastEvent
+            self.recentBalls = recentBalls
         }
     }
 
