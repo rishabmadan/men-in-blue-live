@@ -13,6 +13,22 @@ public class LiveScoreManager: ObservableObject {
     private var audioPlayer: AVAudioPlayer?
     
     public init() {}
+
+    private func flagForTeam(_ code: String) -> String {
+    switch code.uppercased() {
+    case "IND", "INDIA": return "🇮🇳"
+    case "AUS", "AUSTRALIA": return "🇦🇺"
+    case "ENG", "ENGLAND": return "🏴󠁧󠁢󠁥󠁮󠁧󠁿"
+    case "NZ", "NEW ZEALAND": return "🇳🇿"
+    case "PAK", "PAKISTAN": return "🇵🇰"
+    case "SA", "SOUTH AFRICA": return "🇿🇦"
+    case "SL", "SRI LANKA": return "🇱🇰"
+    case "BAN", "BANGLADESH": return "🇧🇩"
+    case "AFG", "AFGHANISTAN": return "🇦🇫"
+    case "WI", "WEST INDIES": return "🏝️"
+    default: return "🏏"
+    }
+}
     
     // MARK: - Start Tracking (Local Polling, No APNs Needed)
     
