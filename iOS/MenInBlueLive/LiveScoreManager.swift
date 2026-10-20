@@ -140,7 +140,7 @@ public class LiveScoreManager: ObservableObject {
                             // Multi-innings display for Tests
                             var scoreText = "\(runs)/\(wickets)"
                             if let teamScore = (s2Inngs != nil ? s2 : s1),
-                               let firstInngs = teamScore?["inngs1"] as? [String: Any],
+                               let firstInngs = teamScore["inngs1"] as? [String: Any],
                                teamScore?["inngs2"] != nil {
                                 let r1 = firstInngs["runs"] as? Int ?? 0
                                 scoreText = "\(r1) & \(runs)/\(wickets)"
