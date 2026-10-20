@@ -55,7 +55,7 @@ public class LiveScoreManager: ObservableObject {
             scoreString: "0/0",
             oversString: "(0.0)",
             currentRunRate: "CRR: 0.00",
-            statusMessage: "Connecting to Cricbuzz...",
+            statusMessage: "Fetching live match...",
             homeTeam: home,
             awayTeam: away,
             homeFlag: homeFlag,
@@ -72,6 +72,7 @@ public class LiveScoreManager: ObservableObject {
             self.isTracking = true
             self.statusText = "Tracking Live"
             
+            // Poll Cricinfo immediately, then every 30 seconds
             fetchAndRefreshScore()
             timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
                 self?.fetchAndRefreshScore()
@@ -81,86 +82,88 @@ public class LiveScoreManager: ObservableObject {
         }
     }
     
-    // MARK: - Live Score Polling from Cricbuzz
+    // MARK: - Live Score Polling from ESPN Cricinfo (Open, Anti-Bot Free)
     
     private func fetchAndRefreshScore() {
-        guard let url = URL(string: "https://www.cricbuzz.com/api/cricket-match/live-scores") else { return }
+        guard let url = URL(string: "https://hs-consumer-api.espncricinfo.com/v1/pages/matches/current?lang=en&latest=true") else { return }
         var request = URLRequest(url: url)
-        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 10.0
         
         URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            guard let self = self,
-                  let data = data, error == nil,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let typeMatches = json["typeMatches"] as? [[String: Any]] else { return }
+            guard let self = self else { return }
             
-            for category in typeMatches {
-                for series in category["seriesMatches"] as? [[String: Any]] ?? [] {
-                    let wrapper = series["seriesAdWrapper"] as? [String: Any] ?? [:]
-                    for match in wrapper["matches"] as? [[String: Any]] ?? [] {
-                        let info = match["matchInfo"] as? [String: Any] ?? [:]
-                        let t1Raw = (info["team1"] as? [String: Any])?["teamSName"] as? String ?? ""
-                        let t2Raw = (info["team2"] as? [String: Any])?["teamSName"] as? String ?? ""
-                        let t1NameRaw = (info["team1"] as? [String: Any])?["teamName"] as? String ?? ""
-                        let t2NameRaw = (info["team2"] as? [String: Any])?["teamName"] as? String ?? ""
-                        
-                        let t1 = t1Raw.uppercased()
-                        let t2 = t2Raw.uppercased()
-                        let t1Name = t1NameRaw.uppercased()
-                        let t2Name = t2NameRaw.uppercased()
-                        
-                        let isIndia = t1.contains("IND") || t2.contains("IND") ||
-                                      t1Name.contains("IND") || t2Name.contains("IND")
-                        
-                        if isIndia {
-                            let scores = match["matchScore"] as? [String: Any] ?? [:]
-                            let s1 = scores["team1Score"] as? [String: Any]
-                            let s2 = scores["team2Score"] as? [String: Any]
-                            
-                            let s1Inngs = (s1?["inngs2"] as? [String: Any]) ?? (s1?["inngs1"] as? [String: Any])
-                            let s2Inngs = (s2?["inngs2"] as? [String: Any]) ?? (s2?["inngs1"] as? [String: Any])
-                            
-                            let inngs = s2Inngs ?? s1Inngs ?? [:]
-                            
-                            let runs = inngs["runs"] as? Int ?? 0
-                            let wickets = inngs["wickets"] as? Int ?? 0
-                            let overs = inngs["overs"] as? Double ?? 0.0
-                            let status = info["status"] as? String ?? "Match Live"
-                            let crr = overs > 0 ? String(format: "CRR: %.2f", Double(runs) / overs) : "CRR: 0.00"
-                            
-                            var scoreText = "\(runs)/\(wickets)"
-                            if let teamScore = (s2Inngs != nil ? s2 : s1) {
-                                if let firstInngs = teamScore["inngs1"] as? [String: Any],
-                                   teamScore["inngs2"] != nil {
-                                    let r1 = firstInngs["runs"] as? Int ?? 0
-                                    scoreText = "\(r1) & \(runs)/\(wickets)"
-                                }
-                            }
-                            
-                            let displayT1 = t1Raw.isEmpty ? "IND" : t1Raw
-                            let displayT2 = t2Raw.isEmpty ? "OPP" : t2Raw
-                            
-                            let newState = CricketMatchAttributes.ContentState(
-                                scoreString: scoreText,
-                                oversString: "(\(overs))",
-                                currentRunRate: crr,
-                                statusMessage: status,
-                                homeTeam: displayT1,
-                                awayTeam: displayT2,
-                                homeFlag: self.flagForTeam(displayT1),
-                                awayFlag: self.flagForTeam(displayT2)
-                            )
-                            
-                            Task {
-                                await self.currentActivity?.update(ActivityContent(state: newState, staleDate: nil))
-                            }
-                            return
-                        }
+            if let error = error {
+                self.updateLiveBannerStatus("Network Error: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let data = data,
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let matches = json["matches"] as? [[String: Any]] else {
+                self.updateLiveBannerStatus("Connecting...")
+                return
+            }
+            
+            for match in matches {
+                guard let teams = match["teams"] as? [[String: Any]], teams.count >= 2 else { continue }
+                
+                let t1Info = teams[0]["team"] as? [String: Any] ?? [:]
+                let t2Info = teams[1]["team"] as? [String: Any] ?? [:]
+                
+                let t1Abbr = (t1Info["abbreviation"] as? String ?? "").uppercased()
+                let t2Abbr = (t2Info["abbreviation"] as? String ?? "").uppercased()
+                let t1Name = (t1Info["name"] as? String ?? "").uppercased()
+                let t2Name = (t2Info["name"] as? String ?? "").uppercased()
+                
+                // Matches IND, IND-W, India, India Women
+                let isIndia = t1Abbr.contains("IND") || t2Abbr.contains("IND") ||
+                              t1Name.contains("IND") || t2Name.contains("IND")
+                
+                if isIndia {
+                    let status = match["statusText"] as? String ?? "Match Live"
+                    
+                    let t1Score = teams[0]["score"] as? String ?? ""
+                    let t1Overs = teams[0]["scoreInfo"] as? String ?? ""
+                    let t2Score = teams[1]["score"] as? String ?? ""
+                    let t2Overs = teams[1]["scoreInfo"] as? String ?? ""
+                    
+                    // Display the active team's score
+                    let activeScore = !t2Score.isEmpty ? t2Score : (!t1Score.isEmpty ? t1Score : "0/0")
+                    let activeOvers = !t2Overs.isEmpty ? t2Overs : (!t1Overs.isEmpty ? t1Overs : "(0.0)")
+                    
+                    let displayT1 = (t1Info["abbreviation"] as? String) ?? "IND"
+                    let displayT2 = (t2Info["abbreviation"] as? String) ?? "ZIM"
+                    
+                    let newState = CricketMatchAttributes.ContentState(
+                        scoreString: activeScore,
+                        oversString: activeOvers,
+                        currentRunRate: "LIVE",
+                        statusMessage: status,
+                        homeTeam: displayT1,
+                        awayTeam: displayT2,
+                        homeFlag: self.flagForTeam(displayT1),
+                        awayFlag: self.flagForTeam(displayT2)
+                    )
+                    
+                    Task {
+                        await self.currentActivity?.update(ActivityContent(state: newState, staleDate: nil))
                     }
+                    return
                 }
             }
+            
+            self.updateLiveBannerStatus("No live India match right now")
         }.resume()
+    }
+    
+    private func updateLiveBannerStatus(_ message: String) {
+        Task {
+            guard let current = self.currentActivity else { return }
+            var state = current.content.state
+            state.statusMessage = message
+            await current.update(ActivityContent(state: state, staleDate: nil))
+        }
     }
     
     // MARK: - Background Audio Keep-Alive
