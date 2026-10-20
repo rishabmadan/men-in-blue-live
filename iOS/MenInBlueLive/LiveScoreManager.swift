@@ -14,41 +14,30 @@ public class LiveScoreManager: ObservableObject {
     
     public init() {}
     
+    // MARK: - Country Flag Mapper
+    
     private func flagForTeam(_ code: String) -> String {
-        switch code.uppercased() {
-        case "IND", "INDIA": return "🇮🇳"
-        case "AUS", "AUSTRALIA": return "🇦🇺"
-        case "ENG", "ENGLAND": return "🏴󠁧󠁢󠁥󠁮󠁧󠁿"
-        case "NZ", "NEW ZEALAND": return "🇳🇿"
-        case "PAK", "PAKISTAN": return "🇵🇰"
-        case "SA", "SOUTH AFRICA": return "🇿🇦"
-        case "SL", "SRI LANKA": return "🇱🇰"
-        case "BAN", "BANGLADESH": return "🇧🇩"
-        case "AFG", "AFGHANISTAN": return "🇦🇫"
-        case "WI", "WEST INDIES": return "🏝️"
-        default: return "🏏"
-        }
+        let clean = code.uppercased()
+        if clean.contains("IND") { return "🇮🇳" }
+        if clean.contains("ZIM") { return "🇿🇼" }
+        if clean.contains("AUS") { return "🇦🇺" }
+        if clean.contains("ENG") { return "🇬🇧" }
+        if clean.contains("NZ") { return "🇳🇿" }
+        if clean.contains("PAK") { return "🇵🇰" }
+        if clean.contains("SA") { return "🇿🇦" }
+        if clean.contains("SL") { return "🇱🇰" }
+        if clean.contains("BAN") { return "🇧🇩" }
+        if clean.contains("AFG") { return "🇦🇫" }
+        if clean.contains("WI") { return "🏝️" }
+        return "🏏"
     }
     
-    private func triggerCronUpdate() {
-        guard let url = URL(string: "https://your-exact-vercel-domain.vercel.app/api/cron-update") else { return }
-        
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 10.0
-        
-        URLSession.shared.dataTask(with: request) { _, _, _ in
-            // ignore response for now
-        }.resume()
-    }
-    
-    // MARK: - Start Tracking (Local Polling, No APNs Needed)
+    // MARK: - Start Tracking
     
     public func startTrackingMatch(home: String, away: String, matchType: String) {
         let homeUpper = home.uppercased()
         let awayUpper = away.uppercased()
         
-        // Strict structural country filter
         guard homeUpper.contains("IND") || homeUpper.contains("INDIA") ||
               awayUpper.contains("IND") || awayUpper.contains("INDIA") else {
             self.statusText = "Refused: Non-India match"
@@ -57,21 +46,23 @@ public class LiveScoreManager: ObservableObject {
         
         stopTracking()
         setupBackgroundKeepAlive()
-        triggerCronUpdate()
         
+        let attributes = CricketMatchAttributes(homeTeam: home, awayTeam: away, matchType: matchType)
         let homeFlag = flagForTeam(home)
         let awayFlag = flagForTeam(away)
         
-        let attributes = CricketMatchAttributes(homeTeam: home, awayTeam: away, matchType: matchType)
         let initialContent = CricketMatchAttributes.ContentState(
             scoreString: "0/0",
             oversString: "(0.0)",
             currentRunRate: "CRR: 0.00",
-            statusMessage: "\(homeFlag) \(home) vs \(awayFlag) \(away)"
+            statusMessage: "Fetching live score...",
+            homeTeam: home,
+            awayTeam: away,
+            homeFlag: homeFlag,
+            awayFlag: awayFlag
         )
         
         do {
-            // pushType is nil: purely local updates, zero Apple developer keys needed
             let activity = try Activity.request(
                 attributes: attributes,
                 content: ActivityContent(state: initialContent, staleDate: nil),
@@ -81,70 +72,95 @@ public class LiveScoreManager: ObservableObject {
             self.isTracking = true
             self.statusText = "Tracking Live"
             
-            // Poll Cricbuzz immediately, then every 30 seconds
             fetchAndRefreshScore()
-            timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+            timer = Timer.scheduledTimer(withTimeInterval: 20.0, repeats: true) { [weak self] _ in
                 self?.fetchAndRefreshScore()
-                self?.triggerCronUpdate()
             }
         } catch {
             self.statusText = "Error: \(error.localizedDescription)"
         }
     }
     
-    // MARK: - Direct Score Fetching from Cricbuzz
+    // MARK: - Live Score Polling from Vercel Backend
     
     private func fetchAndRefreshScore() {
-        guard let url = URL(string: "https://www.cricbuzz.com/api/cricket-match/live-scores") else { return }
+        // REPLACE THIS URL with your live Vercel domain
+        guard let url = URL(string: "https://your-vercel-domain.vercel.app/api/cron-update") else { return }
         var request = URLRequest(url: url)
-        request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X)", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.timeoutInterval = 10.0
         
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            guard let data = data, error == nil,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let typeMatches = json["typeMatches"] as? [[String: Any]] else { return }
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
             
-            for category in typeMatches {
-                for series in category["seriesMatches"] as? [[String: Any]] ?? [] {
-                    let wrapper = series["seriesAdWrapper"] as? [String: Any] ?? [:]
-                    for match in wrapper["matches"] as? [[String: Any]] ?? [] {
-                        let info = match["matchInfo"] as? [String: Any] ?? [:]
-                        let t1 = (info["team1"] as? [String: Any])?["teamSName"] as? String ?? ""
-                        let t2 = (info["team2"] as? [String: Any])?["teamSName"] as? String ?? ""
-                        
-                        if t1.contains("IND") || t2.contains("IND") {
-                            let scores = match["matchScore"] as? [String: Any] ?? [:]
-                            let isT1 = t1.contains("IND")
-                            let teamScore = (isT1 ? scores["team1Score"] : scores["team2Score"]) as? [String: Any]
-                            let inngs = (teamScore?["inngs2"] ?? teamScore?["inngs1"]) as? [String: Any] ?? [:]
-                            
-                            let runs = inngs["runs"] as? Int ?? 0
-                            let wickets = inngs["wickets"] as? Int ?? 0
-                            let overs = inngs["overs"] as? Double ?? 0.0
-                            let status = info["status"] as? String ?? "Live"
-                            let crr = overs > 0 ? String(format: "CRR: %.2f", Double(runs) / overs) : "CRR: 0.00"
-                            
-                            let homeFlag = self?.flagForTeam(t1) ?? "🏏"
-                            let awayFlag = self?.flagForTeam(t2) ?? "🏏"
-                            let liveStatus = "\(homeFlag) \(t1) vs \(awayFlag) \(t2) • \(status)"
-                            
-                            let newState = CricketMatchAttributes.ContentState(
-                                scoreString: "\(runs)/\(wickets)",
-                                oversString: "(\(overs))",
-                                currentRunRate: crr,
-                                statusMessage: liveStatus
-                            )
-                            
-                            Task {
-                                await self?.currentActivity?.update(ActivityContent(state: newState, staleDate: nil))
-                            }
-                            return
-                        }
-                    }
-                }
+            if let error = error {
+                self.updateLiveBannerStatus("Net: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let data = data else {
+                self.updateLiveBannerStatus("No data received")
+                return
+            }
+            
+            // Check HTTP status code
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                self.updateLiveBannerStatus("Server HTTP \(http.statusCode)")
+                return
+            }
+            
+            // Parse clean JSON payload delivered by Vercel
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                self.updateLiveBannerStatus("Invalid JSON")
+                return
+            }
+            
+            // Extract the payload dictionary
+            var payload = json["payload"] as? [String: Any]
+            if payload == nil, let bodyStr = json["body"] as? String, let bodyData = bodyStr.data(using: .utf8) {
+                payload = (try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any])?["payload"] as? [String: Any]
+            }
+            
+            guard let validPayload = payload,
+                  let aps = validPayload["aps"] as? [String: Any],
+                  let content = aps["content-state"] as? [String: Any] else {
+                let status = json["status"] as? String ?? "No live match data"
+                self.updateLiveBannerStatus(status)
+                return
+            }
+            
+            let score = content["scoreString"] as? String ?? "0/0"
+            let overs = content["oversString"] as? String ?? "(0.0)"
+            let crr = content["currentRunRate"] as? String ?? "CRR: 0.00"
+            let status = content["statusMessage"] as? String ?? "Match Live"
+            
+            let home = content["homeTeam"] as? String ?? "IND-W"
+            let away = content["awayTeam"] as? String ?? "ZIM-W"
+            
+            let newState = CricketMatchAttributes.ContentState(
+                scoreString: score,
+                oversString: overs,
+                currentRunRate: crr,
+                statusMessage: status,
+                homeTeam: home,
+                awayTeam: away,
+                homeFlag: self.flagForTeam(home),
+                awayFlag: self.flagForTeam(away)
+            )
+            
+            Task {
+                await self.currentActivity?.update(ActivityContent(state: newState, staleDate: nil))
             }
         }.resume()
+    }
+    
+    private func updateLiveBannerStatus(_ message: String) {
+        Task {
+            guard let current = self.currentActivity else { return }
+            var state = current.content.state
+            state.statusMessage = message
+            await current.update(ActivityContent(state: state, staleDate: nil))
+        }
     }
     
     // MARK: - Background Audio Keep-Alive
