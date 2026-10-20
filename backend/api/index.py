@@ -1,8 +1,10 @@
 from http.server import BaseHTTPRequestHandler
 import json
+import time
 import urllib.request
 import xml.etree.ElementTree as ET
 import ssl
+
 
 def fetch_live_cricket_match() -> dict:
     ctx = ssl._create_unverified_context()
@@ -16,28 +18,28 @@ def fetch_live_cricket_match() -> dict:
         with urllib.request.urlopen(req, context=ctx, timeout=5) as resp:
             xml_data = resp.read().decode("utf-8", errors="ignore")
             root = ET.fromstring(xml_data)
-            
+
             for match in root.findall(".//match"):
                 desc = (match.get("mchDesc") or "").upper()
                 series = (match.get("srs") or "").upper()
-                
+
                 # Check for India or India Women
                 if "IND" in desc or "INDIA" in desc or "IND" in series:
                     mstate = match.get("mstate") or match.get("status") or "Match Live"
                     mscr = match.find("mscr")
-                    
+
                     if mscr is not None:
                         bt = mscr.find("btTm")
                         blg = mscr.find("blgTm")
-                        
+
                         bt_name = bt.get("sName", "IND") if bt is not None else "IND"
                         blg_name = blg.get("sName", "ZIM") if blg is not None else "ZIM"
-                        
+
                         inngs = bt.find("Inngs") if bt is not None else None
                         runs = inngs.get("r", "0") if inngs is not None else "0"
                         wkts = inngs.get("wkts", "0") if inngs is not None else "0"
                         ovrs = inngs.get("ovrs", "0.0") if inngs is not None else "0.0"
-                        
+
                         return {
                             "home_team_short": bt_name,
                             "away_team_short": blg_name,
@@ -62,20 +64,20 @@ def fetch_live_cricket_match() -> dict:
                     for event in league.get("events", []):
                         name = event.get("name", "").upper()
                         short_name = event.get("shortName", "").upper()
-                        
+
                         if "IND" in name or "IND" in short_name or "INDIA" in name:
                             competitors = event.get("competitors", [])
                             c1 = competitors[0] if len(competitors) > 0 else {}
                             c2 = competitors[1] if len(competitors) > 1 else {}
-                            
+
                             s1 = c1.get("score", "")
                             s2 = c2.get("score", "")
                             t1 = c1.get("abbreviation") or c1.get("name") or "IND-W"
                             t2 = c2.get("abbreviation") or c2.get("name") or "ZIM-W"
-                            
+
                             status_obj = event.get("status", {})
                             status_str = status_obj.get("summary") or status_obj.get("description") or "Match Live"
-                            
+
                             return {
                                 "home_team_short": t1,
                                 "away_team_short": t2,
@@ -99,6 +101,25 @@ def fetch_live_cricket_match() -> dict:
         "live_status_string": "IND-W vs ZIM-W Live in Raipur"
     }
 
+
+def fetch_simulated_live_cricket_match() -> dict:
+    now = int(time.time())
+    balls = (now // 15) % 120
+    overs = f"{balls // 6}.{balls % 6}"
+    runs = 45 + int(balls * 1.4)
+    wickets = min(balls // 25, 9)
+    crr = round(runs / max(float(balls) / 6.0, 0.1), 2)
+
+    return {
+        "home_team_short": "IND",
+        "away_team_short": "NZ",
+        "live_score_runs_wickets": f"{runs}/{wickets}",
+        "live_overs": f"({overs})",
+        "current_run_rate": f"CRR: {crr}",
+        "live_status_string": "Simulated Live Match • Testing"
+    }
+
+
 # MARK: - Vercel Handler
 
 class handler(BaseHTTPRequestHandler):
@@ -107,9 +128,10 @@ class handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
-        
-        match = fetch_live_cricket_match()
-        
+
+        query = self.path.lower()
+        match = fetch_simulated_live_cricket_match() if "simulate" in query or "testing" in query else fetch_live_cricket_match()
+
         response_payload = {
             "status": "success",
             "payload": {
@@ -125,6 +147,6 @@ class handler(BaseHTTPRequestHandler):
                 }
             }
         }
-        
+
         self.wfile.write(json.dumps(response_payload).encode("utf-8"))
         return
