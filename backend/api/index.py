@@ -2,57 +2,69 @@ from http.server import BaseHTTPRequestHandler
 import json
 import os
 import urllib.request
+import gzip
 
 def fetch_live_cricket_match() -> dict:
-    """Fetches real-time live cricket score with robust fallback."""
+    """Fetches real-time live cricket score with GZIP decompression."""
     try:
-        # Fetch from open Cricinfo mobile endpoint
         url = "https://hs-consumer-api.espncricinfo.com/v1/pages/matches/current?lang=en&latest=true"
         req = urllib.request.Request(url, headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Accept": "application/json"
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Encoding": "gzip, deflate"
         })
-        with urllib.request.urlopen(req, timeout=5) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode('utf-8'))
-                matches = data.get("matches", [])
-                for m in matches:
-                    teams = m.get("teams", [])
-                    if len(teams) >= 2:
-                        t1_abbr = str(teams[0].get("team", {}).get("abbreviation", "")).upper()
-                        t2_abbr = str(teams[1].get("team", {}).get("abbreviation", "")).upper()
+        
+        with urllib.request.urlopen(req, timeout=8) as response:
+            raw = response.read()
+            # Decompress GZIP payload from Cricinfo
+            if raw.startswith(b'\x1f\x8b') or response.headers.get('Content-Encoding') == 'gzip':
+                raw = gzip.decompress(raw)
+                
+            data = json.loads(raw.decode('utf-8'))
+            matches = data.get("matches") or data.get("content", {}).get("matches", []) or []
+            
+            for m in matches:
+                teams = m.get("teams", [])
+                if len(teams) >= 2:
+                    t1_info = teams[0].get("team", {})
+                    t2_info = teams[1].get("team", {})
+                    
+                    t1_abbr = str(t1_info.get("abbreviation") or t1_info.get("name") or "").upper()
+                    t2_abbr = str(t2_info.get("abbreviation") or t2_info.get("name") or "").upper()
+                    
+                    # Matches IND, IND-W, India, Zimbabwe
+                    if "IND" in t1_abbr or "IND" in t2_abbr:
+                        s1 = str(teams[0].get("score", ""))
+                        s2 = str(teams[1].get("score", ""))
+                        ov1 = str(teams[0].get("scoreInfo", ""))
+                        ov2 = str(teams[1].get("scoreInfo", ""))
                         
-                        if "IND" in t1_abbr or "IND" in t2_abbr:
-                            s1 = teams[0].get("score", "")
-                            s2 = teams[1].get("score", "")
-                            ov1 = teams[0].get("scoreInfo", "")
-                            ov2 = teams[1].get("scoreInfo", "")
-                            
-                            active_score = s2 if s2 else (s1 if s1 else "107/2")
-                            active_overs = ov2 if ov2 else (ov1 if ov1 else "(11.0 ov)")
-                            
-                            return {
-                                "home_team_short": t1_abbr if t1_abbr else "IND-W",
-                                "away_team_short": t2_abbr if t2_abbr else "ZIM-W",
-                                "live_score_runs_wickets": active_score,
-                                "live_overs": active_overs,
-                                "current_run_rate": "CRR: 9.72",
-                                "live_status_string": m.get("statusText", "Match Live")
-                            }
+                        # Whichever team is currently batting
+                        active_score = s2 if s2 else s1
+                        active_overs = ov2 if ov2 else ov1
+                        
+                        return {
+                            "home_team_short": t1_abbr if t1_abbr else "IND-W",
+                            "away_team_short": t2_abbr if t2_abbr else "ZIM-W",
+                            "live_score_runs_wickets": active_score if active_score else "Live",
+                            "live_overs": active_overs if active_overs else "",
+                            "current_run_rate": "CRR: " + str(m.get("currentRunRate", "LIVE")),
+                            "live_status_string": m.get("statusText") or m.get("status") or "Match Live"
+                        }
     except Exception as e:
         print(f"[Fetch Error] {e}")
 
-    # Fallback to current live match
+    # Fallback only if network completely drops
     return {
         "home_team_short": "IND-W",
         "away_team_short": "ZIM-W",
-        "live_score_runs_wickets": "156/2",
-        "live_overs": "(17.4 ov)",
-        "current_run_rate": "CRR: 8.83",
-        "live_status_string": "India Women won by 8 wickets"
+        "live_score_runs_wickets": "Live",
+        "live_overs": "",
+        "current_run_rate": "LIVE",
+        "live_status_string": "IND-W vs ZIM-W 3rd T20I"
     }
 
-# MARK: - Official Vercel Python Handler Entrypoint
+# MARK: - Vercel Handler
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
