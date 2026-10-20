@@ -14,7 +14,7 @@ public class LiveScoreManager: ObservableObject {
     
     public init() {}
     
-    // MARK: - Country Flag Mapper
+    // MARK: - Flag Mapper
     
     private func flagForTeam(_ code: String) -> String {
         let clean = code.uppercased()
@@ -55,7 +55,7 @@ public class LiveScoreManager: ObservableObject {
             scoreString: "0/0",
             oversString: "(0.0)",
             currentRunRate: "CRR: 0.00",
-            statusMessage: "Fetching live match...",
+            statusMessage: "Fetching live score...",
             homeTeam: home,
             awayTeam: away,
             homeFlag: homeFlag,
@@ -72,9 +72,8 @@ public class LiveScoreManager: ObservableObject {
             self.isTracking = true
             self.statusText = "Tracking Live"
             
-            // Poll Cricinfo immediately, then every 30 seconds
             fetchAndRefreshScore()
-            timer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+            timer = Timer.scheduledTimer(withTimeInterval: 20.0, repeats: true) { [weak self] _ in
                 self?.fetchAndRefreshScore()
             }
         } catch {
@@ -82,7 +81,7 @@ public class LiveScoreManager: ObservableObject {
         }
     }
     
-    // MARK: - Live Score Polling from ESPN Cricinfo (Open, Anti-Bot Free)
+    // MARK: - Universal Feed Parser (Handles all Cricinfo / Cricbuzz layouts)
     
     private func fetchAndRefreshScore() {
         guard let url = URL(string: "https://hs-consumer-api.espncricinfo.com/v1/pages/matches/current?lang=en&latest=true") else { return }
@@ -90,45 +89,72 @@ public class LiveScoreManager: ObservableObject {
         request.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 10.0
         
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             
             if let error = error {
-                self.updateLiveBannerStatus("Network Error: \(error.localizedDescription)")
+                self.updateLiveBannerStatus("Net: \(error.localizedDescription)")
                 return
             }
             
-            guard let data = data,
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let matches = json["matches"] as? [[String: Any]] else {
+            guard let data = data else {
+                self.updateLiveBannerStatus("No data received")
+                return
+            }
+            
+            // Extract match list whether root is an Array or Dictionary
+            var matchesList: [[String: Any]] = []
+            
+            if let rootArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] {
+                matchesList = rootArray
+            } else if let rootDict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let m = rootDict["matches"] as? [[String: Any]] {
+                    matchesList = m
+                } else if let content = rootDict["content"] as? [String: Any], let m = content["matches"] as? [[String: Any]] {
+                    matchesList = m
+                } else if let page = rootDict["page"] as? [String: Any], let m = page["matches"] as? [[String: Any]] {
+                    matchesList = m
+                } else {
+                    for (_, val) in rootDict {
+                        if let arr = val as? [[String: Any]] {
+                            matchesList = arr
+                            break
+                        }
+                    }
+                }
+            }
+            
+            guard !matchesList.isEmpty else {
                 self.updateLiveBannerStatus("Connecting...")
                 return
             }
             
-            for match in matches {
-                guard let teams = match["teams"] as? [[String: Any]], teams.count >= 2 else { continue }
+            // Search for India (Men's, Women's, or U19)
+            for match in matchesList {
+                guard let teams = (match["teams"] as? [[String: Any]]) ?? (match["competitors"] as? [[String: Any]]), teams.count >= 2 else { continue }
                 
-                let t1Info = teams[0]["team"] as? [String: Any] ?? [:]
-                let t2Info = teams[1]["team"] as? [String: Any] ?? [:]
+                let team1 = teams[0]
+                let team2 = teams[1]
                 
-                let t1Abbr = (t1Info["abbreviation"] as? String ?? "").uppercased()
-                let t2Abbr = (t2Info["abbreviation"] as? String ?? "").uppercased()
+                let t1Info = (team1["team"] as? [String: Any]) ?? team1
+                let t2Info = (team2["team"] as? [String: Any]) ?? team2
+                
+                let t1Abbr = (t1Info["abbreviation"] as? String ?? t1Info["name"] as? String ?? "").uppercased()
+                let t2Abbr = (t2Info["abbreviation"] as? String ?? t2Info["name"] as? String ?? "").uppercased()
                 let t1Name = (t1Info["name"] as? String ?? "").uppercased()
                 let t2Name = (t2Info["name"] as? String ?? "").uppercased()
                 
-                // Matches IND, IND-W, India, India Women
-                let isIndia = t1Abbr.contains("IND") || t2Abbr.contains("IND") ||
-                              t1Name.contains("IND") || t2Name.contains("IND")
+                let matchHeader = "\(t1Abbr) \(t1Name) \(t2Abbr) \(t2Name)"
+                let isIndia = matchHeader.contains("IND") || matchHeader.contains("INDIA")
                 
                 if isIndia {
-                    let status = match["statusText"] as? String ?? "Match Live"
+                    let status = (match["statusText"] as? String) ?? (match["status"] as? String) ?? "Match Live"
                     
-                    let t1Score = teams[0]["score"] as? String ?? ""
-                    let t1Overs = teams[0]["scoreInfo"] as? String ?? ""
-                    let t2Score = teams[1]["score"] as? String ?? ""
-                    let t2Overs = teams[1]["scoreInfo"] as? String ?? ""
+                    let t1Score = (team1["score"] as? String) ?? (team1["scoreInfo"] as? String) ?? ""
+                    let t1Overs = (team1["scoreInfo"] as? String) ?? (team1["overs"] as? String) ?? ""
+                    let t2Score = (team2["score"] as? String) ?? (team2["scoreInfo"] as? String) ?? ""
+                    let t2Overs = (team2["scoreInfo"] as? String) ?? (team2["overs"] as? String) ?? ""
                     
-                    // Display the active team's score
                     let activeScore = !t2Score.isEmpty ? t2Score : (!t1Score.isEmpty ? t1Score : "0/0")
                     let activeOvers = !t2Overs.isEmpty ? t2Overs : (!t1Overs.isEmpty ? t1Overs : "(0.0)")
                     
@@ -153,7 +179,8 @@ public class LiveScoreManager: ObservableObject {
                 }
             }
             
-            self.updateLiveBannerStatus("No live India match right now")
+            // If no active India match found, display status
+            self.updateLiveBannerStatus("No active India match (Found \(matchesList.count) games)")
         }.resume()
     }
     
