@@ -17,19 +17,19 @@ public class LiveScoreManager: ObservableObject {
     // MARK: - Country Flag Mapper (Clean Unicode, No Warnings)
     
     private func flagForTeam(_ code: String) -> String {
-        switch code.uppercased() {
-        case "IND", "INDIA": return "🇮🇳"
-        case "AUS", "AUSTRALIA": return "🇦🇺"
-        case "ENG", "ENGLAND": return "🇬🇧" // Uses clean UK flag to prevent hidden Unicode warnings
-        case "NZ", "NEW ZEALAND": return "🇳🇿"
-        case "PAK", "PAKISTAN": return "🇵🇰"
-        case "SA", "SOUTH AFRICA": return "🇿🇦"
-        case "SL", "SRI LANKA": return "🇱🇰"
-        case "BAN", "BANGLADESH": return "🇧🇩"
-        case "AFG", "AFGHANISTAN": return "🇦🇫"
-        case "WI", "WEST INDIES": return "🏝️"
-        default: return "🏏"
-        }
+        let clean = code.uppercased()
+        if clean.contains("IND") { return "🇮🇳" }
+        if clean.contains("ZIM") { return "🇿🇼" }
+        if clean.contains("AUS") { return "🇦🇺" }
+        if clean.contains("ENG") { return "🇬🇧" }
+        if clean.contains("NZ") { return "🇳🇿" }
+        if clean.contains("PAK") { return "🇵🇰" }
+        if clean.contains("SA") { return "🇿🇦" }
+        if clean.contains("SL") { return "🇱🇰" }
+        if clean.contains("BAN") { return "🇧🇩" }
+        if clean.contains("AFG") { return "🇦🇫" }
+        if clean.contains("WI") { return "🏝️" }
+        return "🏏"
     }
     
     // MARK: - Start Tracking
