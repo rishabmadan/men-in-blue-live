@@ -21,6 +21,13 @@ jobs:
         with:
           gradle-version: '8.5'
 
+      - name: Debug Folder Structure
+        run: |
+          echo "=== Files inside android folder ==="
+          ls -la android || true
+          echo "=== Full file tree ==="
+          find android -maxdepth 3 || true
+
       - name: Build APK
         working-directory: android
         run: gradle assembleDebug --no-daemon
@@ -30,3 +37,4 @@ jobs:
         with:
           name: MenInBlueLive-Android
           path: android/app/build/outputs/apk/debug/app-debug.apk
+
