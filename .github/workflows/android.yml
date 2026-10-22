@@ -24,22 +24,12 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      - name: Prepare and sanitize Android build files
+      - name: Ensure all Gradle configuration files are present
         run: |
           mkdir -p android/app
-          cd android
 
-          # Trim any accidental mobile trailing spaces from filenames
-          for f in *; do
-            [ -e "$f" ] || continue
-            clean=$(echo "$f" | sed 's/[[:space:]]*$//')
-            if [ "$f" != "$clean" ]; then
-              mv "$f" "$clean"
-            fi
-          done
-
-          # Guarantee clean settings.gradle.kts
-          cat << 'EOF' > settings.gradle.kts
+          # 1. Root settings.gradle.kts
+          cat << 'EOF' > android/settings.gradle.kts
           pluginManagement {
               repositories {
                   google()
@@ -58,20 +48,55 @@ jobs:
           include(":app")
           EOF
 
-          # Guarantee clean root build.gradle.kts
-          cat << 'EOF' > build.gradle.kts
+          # 2. Root build.gradle.kts
+          cat << 'EOF' > android/build.gradle.kts
           plugins {
               id("com.android.application") version "8.2.2" apply false
               id("org.jetbrains.kotlin.android") version "1.9.22" apply false
           }
           EOF
 
-          echo "=== Verified Android Directory ==="
-          ls -la
-          cd ..
+          # 3. App module build.gradle.kts
+          cat << 'EOF' > android/app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.meninblue.live"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.meninblue.live"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.12.0")
+              implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+          }
+          EOF
 
       - name: Build APK
-        run: gradle -p android assembleDebug --no-daemon
+        run: gradle -p android :app:assembleDebug --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
