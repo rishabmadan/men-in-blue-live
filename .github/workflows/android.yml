@@ -24,9 +24,9 @@ jobs:
         with:
           gradle-version: '8.5'
 
-      - name: Ensure all Gradle configuration files are present
+      - name: Guarantee all Android files and manifests
         run: |
-          mkdir -p android/app
+          mkdir -p android/app/src/main/java/com/meninblue/live
 
           # 1. Root settings.gradle.kts
           cat << 'EOF' > android/settings.gradle.kts
@@ -56,7 +56,13 @@ jobs:
           }
           EOF
 
-          # 3. App module build.gradle.kts
+          # 3. Root gradle.properties
+          cat << 'EOF' > android/gradle.properties
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+
+          # 4. App module build.gradle.kts
           cat << 'EOF' > android/app/build.gradle.kts
           plugins {
               id("com.android.application")
@@ -95,10 +101,36 @@ jobs:
           }
           EOF
 
-          # 4. Root gradle.properties (Enables AndroidX)
-          cat << 'EOF' > android/gradle.properties
-          android.useAndroidX=true
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          # 5. App AndroidManifest.xml
+          cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@android:drawable/ic_dialog_info"
+                  android:label="Men In Blue Live"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".CricketService"
+                      android:foregroundServiceType="dataSync"
+                      android:exported="false" />
+              </application>
+          </manifest>
           EOF
 
       - name: Build APK
