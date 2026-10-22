@@ -95,6 +95,12 @@ jobs:
           }
           EOF
 
+          # 4. Root gradle.properties (Enables AndroidX)
+          cat << 'EOF' > android/gradle.properties
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+
       - name: Build APK
         run: gradle -p android :app:assembleDebug --no-daemon
 
