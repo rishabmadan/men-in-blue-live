@@ -1,0 +1,57 @@
+package com.meninblue.live
+
+import android.app.Activity
+import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.TextView
+
+class MainActivity : Activity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // Request notification permission on Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+        }
+
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(60, 100, 60, 60)
+        }
+
+        val title = TextView(this).apply {
+            text = "🇮🇳 Men In Blue Live"
+            textSize = 26f
+            setPadding(0, 0, 0, 40)
+        }
+
+        val btnStart = Button(this).apply {
+            text = "Start Live Scoreboard"
+            textSize = 18f
+            setOnClickListener {
+                val intent = Intent(this@MainActivity, CricketService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+            }
+        }
+
+        val btnStop = Button(this).apply {
+            text = "Stop Scoreboard"
+            textSize = 18f
+            setOnClickListener {
+                stopService(Intent(this@MainActivity, CricketService::class.java))
+            }
+        }
+
+        layout.addView(title)
+        layout.addView(btnStart)
+        layout.addView(btnStop)
+        setContentView(layout)
+    }
+}
