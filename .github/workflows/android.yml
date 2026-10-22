@@ -101,7 +101,7 @@ jobs:
           }
           EOF
 
-          # 5. App AndroidManifest.xml
+          # 5. App AndroidManifest.xml (uses robust Theme.Material)
           cat << 'EOF' > android/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -112,12 +112,11 @@ jobs:
 
               <application
                   android:allowBackup="true"
-                  android:icon="@android:drawable/ic_dialog_info"
                   android:label="Men In Blue Live"
-                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  android:theme="@android:style/Theme.Material.NoActionBar">
                   
                   <activity
-                      android:name=".MainActivity"
+                      android:name="com.meninblue.live.MainActivity"
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
@@ -126,11 +125,227 @@ jobs:
                   </activity>
 
                   <service
-                      android:name=".CricketService"
+                      android:name="com.meninblue.live.CricketService"
                       android:foregroundServiceType="dataSync"
                       android:exported="false" />
               </application>
           </manifest>
+          EOF
+
+          # 6. Crash-proof MainActivity.kt
+          cat << 'EOF' > android/app/src/main/java/com/meninblue/live/MainActivity.kt
+          package com.meninblue.live
+
+          import android.app.Activity
+          import android.content.Intent
+          import android.graphics.Color
+          import android.os.Build
+          import android.os.Bundle
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
+
+          class MainActivity : Activity() {
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  val scroll = ScrollView(this)
+                  val layout = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(50, 100, 50, 50)
+                      setBackgroundColor(Color.parseColor("#121212"))
+                  }
+                  scroll.addView(layout)
+                  setContentView(scroll)
+
+                  val title = TextView(this).apply {
+                      text = "🇮🇳 Men In Blue Live"
+                      textSize = 24f
+                      setTextColor(Color.WHITE)
+                      setPadding(0, 0, 0, 30)
+                  }
+                  layout.addView(title)
+
+                  val statusText = TextView(this).apply {
+                      text = "Status: Ready\nTap start to launch notification & Fluid Cloud"
+                      textSize = 15f
+                      setTextColor(Color.LTGRAY)
+                      setPadding(0, 0, 0, 40)
+                  }
+                  layout.addView(statusText)
+
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                          if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                              requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+                          }
+                      }
+                  } catch (e: Exception) {
+                      statusText.text = "Permission Notice: ${e.message}"
+                  }
+
+                  val btnStart = Button(this).apply {
+                      text = "Start Live Scoreboard"
+                      textSize = 16f
+                      setOnClickListener {
+                          try {
+                              val intent = Intent(this@MainActivity, CricketService::class.java)
+                              if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                  startForegroundService(intent)
+                              } else {
+                                  startService(intent)
+                              }
+                              statusText.text = "Status: Tracking Active!\nCheck your notification bar & Fluid Cloud pill."
+                              statusText.setTextColor(Color.GREEN)
+                          } catch (e: Exception) {
+                              statusText.text = "Start Error: ${e.message}"
+                              statusText.setTextColor(Color.RED)
+                          }
+                      }
+                  }
+                  layout.addView(btnStart)
+
+                  val btnStop = Button(this).apply {
+                      text = "Stop Scoreboard"
+                      textSize = 16f
+                      setOnClickListener {
+                          try {
+                              stopService(Intent(this@MainActivity, CricketService::class.java))
+                              statusText.text = "Status: Stopped"
+                              statusText.setTextColor(Color.YELLOW)
+                          } catch (e: Exception) {
+                              statusText.text = "Stop Error: ${e.message}"
+                          }
+                      }
+                  }
+                  layout.addView(btnStop)
+              }
+          }
+          EOF
+
+          # 7. Resilient CricketService.kt
+          cat << 'EOF' > android/app/src/main/java/com/meninblue/live/CricketService.kt
+          package com.meninblue.live
+
+          import android.app.*
+          import android.content.Intent
+          import android.os.Build
+          import android.os.IBinder
+          import androidx.core.app.NotificationCompat
+          import kotlinx.coroutines.*
+          import org.json.JSONObject
+          import java.net.HttpURLConnection
+          import java.net.URL
+
+          class CricketService : Service() {
+              private val scope = CoroutineScope(Dispatchers.IO + Job())
+              private val CHANNEL_ID = "cricket_live_score"
+              private val NOTIF_ID = 1001
+
+              override fun onCreate() {
+                  super.onCreate()
+                  createNotificationChannel()
+              }
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  if (intent?.action == "STOP") {
+                      stopForeground(STOP_FOREGROUND_REMOVE)
+                      stopSelf()
+                      return START_NOT_STICKY
+                  }
+
+                  val initialNotif = buildNotification("🇮🇳 Men In Blue Live", "Connecting to live score feed...")
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                      startForeground(NOTIF_ID, initialNotif, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                  } else {
+                      startForeground(NOTIF_ID, initialNotif)
+                  }
+
+                  scope.launch {
+                      while (isActive) {
+                          fetchAndUpdate()
+                          delay(12_000)
+                      }
+                  }
+
+                  return START_STICKY
+              }
+
+              private fun fetchAndUpdate() {
+                  try {
+                      val url = URL("https://men-in-blue-live-dopx2-weld.vercel.app/api/cron-update")
+                      val conn = url.openConnection() as HttpURLConnection
+                      conn.connectTimeout = 4000
+                      conn.readTimeout = 4000
+                      conn.setRequestProperty("User-Agent", "MenInBlue-Android")
+
+                      if (conn.responseCode == 200) {
+                          val body = conn.inputStream.bufferedReader().use { it.readText() }
+                          val json = JSONObject(body)
+                          val payload = json.optJSONObject("payload") ?: return
+                          val aps = payload.optJSONObject("aps") ?: return
+                          val content = aps.optJSONObject("content-state") ?: return
+
+                          val score = content.optString("scoreString", "0/0")
+                          val overs = content.optString("oversString", "")
+                          val crr = content.optString("currentRunRate", "")
+                          val status = content.optString("statusMessage", "Match Live")
+
+                          val title = "🇮🇳 IND vs 🇳🇿 NZ   🔴 LIVE"
+                          val text = "$score $overs  •  $crr"
+
+                          val notif = buildNotification(title, text, status)
+                          val manager = getSystemService(NotificationManager::class.java)
+                          manager?.notify(NOTIF_ID, notif)
+                      }
+                  } catch (e: Exception) {
+                      e.printStackTrace()
+                  }
+              }
+
+              private fun buildNotification(title: String, text: String, subtext: String = ""): Notification {
+                  val stopIntent = Intent(this, CricketService::class.java).apply { action = "STOP" }
+                  val pStop = PendingIntent.getService(this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE)
+
+                  val openIntent = Intent(this, MainActivity::class.java)
+                  val pOpen = PendingIntent.getActivity(this, 0, openIntent, PendingIntent.FLAG_IMMUTABLE)
+
+                  return NotificationCompat.Builder(this, CHANNEL_ID)
+                      .setSmallIcon(android.R.drawable.ic_media_play)
+                      .setContentTitle(title)
+                      .setContentText(text)
+                      .setSubText(subtext)
+                      .setContentIntent(pOpen)
+                      .setOngoing(true)
+                      .setOnlyAlertOnce(true)
+                      .setPriority(NotificationCompat.PRIORITY_MAX)
+                      .setCategory(NotificationCompat.CATEGORY_STATUS)
+                      .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop", pStop)
+                      .build()
+              }
+
+              private fun createNotificationChannel() {
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                      val channel = NotificationChannel(
+                          CHANNEL_ID,
+                          "Live Cricket Scores",
+                          NotificationManager.IMPORTANCE_HIGH
+                      ).apply {
+                          description = "Live ball-by-ball score on Lock Screen and Status Bar"
+                          setShowBadge(true)
+                      }
+                      getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
+                  }
+              }
+
+              override fun onDestroy() {
+                  scope.cancel()
+                  super.onDestroy()
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+          }
           EOF
 
       - name: Build APK
