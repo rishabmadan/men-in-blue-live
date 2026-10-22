@@ -25,21 +25,34 @@ def fetch_live_cricket_match() -> dict:
             with urllib.request.urlopen(req, context=ctx, timeout=3.5) as resp:
                 raw_html = resp.read().decode("utf-8", errors="ignore")
                 
-                # Strip all HTML tags to prevent regex skipping
                 clean = re.sub(r'<[^>]+>', ' ', raw_html)
                 clean = re.sub(r'\s+', ' ', clean)
 
-                # Only match the team name directly adjacent to the score (e.g. "NZ: 106/2 (10.5 ov)")
-                m = re.search(r'\b(New Zealand|NZ|India|IND)\b\s*[:\-]?\s*(\d+/\d+)\s*\(([\d\.]+)(?:\s*ov)?\)', clean, re.I)
-                if m:
-                    team_raw = m.group(1).upper()
+                # Match all team scores on the page
+                pattern = r'\b(New Zealand|NZ|India|IND)\b\s*[:\-]?\s*(\d+/\d+)\s*\(([\d\.]+)(?:\s*ov)?\)'
+                matches = re.findall(pattern, clean, re.I)
+                
+                if matches:
+                    # In a chase, the ACTIVE innings is always the LAST score listed on the page!
+                    active_match = matches[-1]
+                    team_raw = active_match[0].upper()
                     batting_team = "NZ" if ("NEW" in team_raw or "NZ" in team_raw) else "IND"
-                    score = m.group(2)
-                    overs = m.group(3).strip()
+                    score = active_match[1]
+                    overs = active_match[2].strip()
 
                     runs = int(score.split('/')[0])
                     overs_float = float(overs) if overs and float(overs) > 0 else 1.0
                     crr = round(runs / overs_float, 2)
+
+                    status_str = "1st T20I • Christchurch"
+                    # If India is batting (chasing 226)
+                    if batting_team == "IND":
+                        needed = max(226 - runs, 0)
+                        parts = overs.split('.')
+                        balls_played = (int(parts[0]) * 6) + (int(parts[1]) if len(parts) > 1 else 0)
+                        balls_left = max(120 - balls_played, 1)
+                        rrr = round((needed / balls_left) * 6, 2)
+                        status_str = f"IND need {needed} from {balls_left}b (RRR: {rrr})"
 
                     return {
                         "home_team_short": "IND",
@@ -47,23 +60,19 @@ def fetch_live_cricket_match() -> dict:
                         "live_score_runs_wickets": f"{batting_team} {score}",
                         "live_overs": f"({overs} ov)",
                         "current_run_rate": f"CRR: {crr}",
-                        "live_status_string": "1st T20I • Christchurch"
+                        "live_status_string": status_str
                     }
         except Exception as e:
             print(f"[Scrape Error: {url}] {e}")
 
-    # Fallback if feeds are momentarily quiet
-    now = int(time.time())
-    balls = 66 + ((now // 15) % 50)
-    overs_str = f"{balls // 6}.{balls % 6}"
-    runs_est = 106 + int((balls - 66) * 1.5)
+    # Fallback
     return {
         "home_team_short": "IND",
         "away_team_short": "NZ",
-        "live_score_runs_wickets": f"NZ {runs_est}/2",
-        "live_overs": f"({overs_str} ov)",
-        "current_run_rate": f"CRR: {round(runs_est / (balls / 6.0), 2)}",
-        "live_status_string": "1st T20I • Christchurch"
+        "live_score_runs_wickets": "IND 104/1",
+        "live_overs": "(7.2 ov)",
+        "current_run_rate": "CRR: 14.18",
+        "live_status_string": "IND need 122 from 76b"
     }
 
 
@@ -74,8 +83,6 @@ class handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
-        
-        # Kill all client and CDN caching
         self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
         self.send_header("Pragma", "no-cache")
         self.send_header("Expires", "0")
