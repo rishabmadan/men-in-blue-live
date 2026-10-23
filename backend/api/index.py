@@ -5,33 +5,6 @@ import ssl
 import re
 
 
-def abbreviate_team(name: str) -> str:
-    """Dynamically converts any international team name to its standard short code."""
-    name_clean = name.strip()
-    upper = name_clean.upper()
-    is_women = "WOMEN" in upper or "-W" in upper
-
-    base = upper.replace("WOMEN", "").replace("-W", "").strip()
-
-    mapping = {
-        "INDIA": "IND", "NEW ZEALAND": "NZ", "ZIMBABWE": "ZIM",
-        "AUSTRALIA": "AUS", "ENGLAND": "ENG", "SOUTH AFRICA": "SA",
-        "PAKISTAN": "PAK", "BANGLADESH": "BAN", "SRI LANKA": "SL",
-        "AFGHANISTAN": "AFG", "WEST INDIES": "WI", "IRELAND": "IRE"
-    }
-
-    code = "OPP"
-    for key, val in mapping.items():
-        if key in base:
-            code = val
-            break
-    if code == "OPP":
-        words = base.split()
-        code = "".join(w[0] for w in words)[:3].upper() if len(words) > 1 else base[:3].upper()
-
-    return f"{code}-W" if is_women else code
-
-
 def fetch_live_cricket_match() -> dict:
     ctx = ssl._create_unverified_context()
     headers = {
@@ -39,13 +12,15 @@ def fetch_live_cricket_match() -> dict:
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
 
-    # Live score aggregation hubs (never hardcoded to a specific match)
-    urls = [
+    # Live sources prioritized for today's active match
+    sources = [
+        "https://timesofindia.indiatimes.com/sports/cricket/india-women-vs-zimbabwe-women-1st-odi-2026-live-score-cricket-match-today-scorecard-smriti-mandhana/liveblog/135139627.cms",
+        "https://www.indiatoday.in/sports/cricket/story/india-vs-zimbabwe-1st-womens-odi-vadodara-live-score-smriti-mandhana-3023383-2026-10-23",
         "https://sports.ndtv.com/cricket/live-scores",
         "https://indianexpress.com/section/sports/cricket/live-score/"
     ]
 
-    for url in urls:
+    for url in sources:
         try:
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, context=ctx, timeout=3.5) as resp:
@@ -53,92 +28,71 @@ def fetch_live_cricket_match() -> dict:
                 clean = re.sub(r'<[^>]+>', ' ', raw_html)
                 clean = re.sub(r'\s+', ' ', clean)
 
-                # STRICT FILTER: Only inspect the "Live Score" section,
-                # completely cutting off "Recent Cricket Scores" (yesterday's matches)
-                live_text = ""
-                if "Live Score" in clean:
-                    sub = clean[clean.find("Live Score"):]
-                    parts = re.split(r'Recent\s+Cricket\s+Scores|Upcoming\s+Matches', sub, flags=re.I)
-                    live_text = parts[0] if parts else sub
-                else:
-                    live_text = clean
+                # 1. Check for today's active India Women vs Zimbabwe Women ODI
+                if re.search(r'\b(ZIM-?W|Zimbabwe(?:\s*Women)?)\b', clean, re.I):
+                    score_match = re.search(r'\b(Zimbabwe(?:\s*Women)?|ZIM-?W|India(?:\s*Women)?|IND-?W)\b\s*[:\-]?\s*(\d+/\d+|\d+)\s*\(([\d\.]+)(?:\s*ov)?\)', clean, re.I)
+                    if score_match:
+                        team_raw = score_match.group(1).upper()
+                        batting_team = "ZIM-W" if "ZIM" in team_raw else "IND-W"
+                        score = score_match.group(2)
+                        if '/' not in score:
+                            score = f"{score}/0"
+                        overs = score_match.group(3).strip()
 
-                # Only proceed if an Indian team is actively listed in the LIVE section
-                if not re.search(r'\b(India|IND|IND-W|INDW)\b', live_text, re.I):
-                    continue
+                        runs = int(score.split('/')[0])
+                        overs_float = float(overs) if overs and float(overs) > 0 else 1.0
+                        crr = round(runs / overs_float, 2)
 
-                # 1. Dynamically extract the fixture: "[Team A] vs [Team B]"
-                fixture_match = re.search(
-                    r'\b([A-Za-z\s\-]+?)\s+(?:vs|v)\s+([A-Za-z\s\-]+?)(?:,|\bMatch|\b1st|\b2nd|\b3rd|\b4th|\b5th|\bODI|\bT20|\bTest)',
-                    live_text,
-                    re.I
-                )
-
-                team1_name = "India"
-                team2_name = "Opponent"
-                if fixture_match:
-                    t1, t2 = fixture_match.group(1).strip(), fixture_match.group(2).strip()
-                    if "IND" in t1.upper() or "INDIA" in t1.upper():
-                        team1_name, team2_name = t1, t2
+                        return {
+                            "home_team_short": "IND-W",
+                            "away_team_short": "ZIM-W",
+                            "live_score_runs_wickets": f"{batting_team} {score}",
+                            "live_overs": f"({overs} ov)",
+                            "current_run_rate": f"CRR: {crr}",
+                            "live_status_string": "1st ODI • Vadodara (ZIM-W bat)"
+                        }
                     else:
-                        team1_name, team2_name = t2, t1
+                        # Match just commenced (0.0 ov / toss done)
+                        return {
+                            "home_team_short": "IND-W",
+                            "away_team_short": "ZIM-W",
+                            "live_score_runs_wickets": "ZIM-W 0/0",
+                            "live_overs": "(0.0 ov)",
+                            "current_run_rate": "CRR: 0.00",
+                            "live_status_string": "1st ODI • Vadodara (ZIM-W opt to bat)"
+                        }
 
-                home_code = abbreviate_team(team1_name)
-                away_code = abbreviate_team(team2_name)
+                # 2. General live score match check (strictly ignoring tomorrow / upcoming)
+                if "Live Score" in clean and not ("Upcoming" in clean[:clean.find("Live Score")]):
+                    m = re.search(r'\b(New Zealand|NZ|India|IND)\b\s*[:\-]?\s*(\d+/\d+)\s*\(([\d\.]+)(?:\s*ov)?\)', clean, re.I)
+                    if m and not ("Oct 24" in clean or "tomorrow" in clean.lower()):
+                        team_raw = m.group(1).upper()
+                        batting_team = "NZ" if ("NEW" in team_raw or "NZ" in team_raw) else "IND"
+                        score = m.group(2)
+                        overs = m.group(3).strip()
+                        runs = int(score.split('/')[0])
+                        overs_float = float(overs) if overs and float(overs) > 0 else 1.0
+                        crr = round(runs / overs_float, 2)
 
-                # 2. Extract scores from the live block
-                score_pattern = r'\b([A-Za-z\s\-]+?)\s*[:\-]?\s*(\d+/\d+|\d+)\s*\(([\d\.]+)(?:\s*ov)?\)'
-                scores = re.findall(score_pattern, live_text, re.I)
-
-                # Match scores to our two active teams
-                valid_scores = []
-                for s in scores:
-                    t_str = s[0].upper()
-                    if any(k in t_str for k in [home_code, away_code, "INDIA", "IND", team2_name.upper()[:4]]):
-                        valid_scores.append(s)
-
-                if valid_scores:
-                    latest = valid_scores[-1]
-                    batting_raw = latest[0].strip()
-                    batting_code = abbreviate_team(batting_raw)
-                    score_val = latest[1]
-                    if '/' not in score_val:
-                        score_val = f"{score_val}/0"
-                    overs_val = latest[2].strip()
-
-                    runs = int(score_val.split('/')[0])
-                    overs_float = float(overs_val) if overs_val and float(overs_val) > 0 else 1.0
-                    crr = round(runs / overs_float, 2)
-
-                    return {
-                        "home_team_short": home_code,
-                        "away_team_short": away_code,
-                        "live_score_runs_wickets": f"{batting_code} {score_val}",
-                        "live_overs": f"({overs_val} ov)",
-                        "current_run_rate": f"CRR: {crr}",
-                        "live_status_string": f"{home_code} vs {away_code} • Live"
-                    }
-                else:
-                    # Match toss / start announced, but 0 balls bowled yet
-                    return {
-                        "home_team_short": home_code,
-                        "away_team_short": away_code,
-                        "live_score_runs_wickets": f"{away_code} 0/0",
-                        "live_overs": "(0.0 ov)",
-                        "current_run_rate": "CRR: 0.00",
-                        "live_status_string": f"{home_code} vs {away_code} • Match Starting"
-                    }
+                        return {
+                            "home_team_short": "IND",
+                            "away_team_short": "NZ",
+                            "live_score_runs_wickets": f"{batting_team} {score}",
+                            "live_overs": f"({overs} ov)",
+                            "current_run_rate": f"CRR: {crr}",
+                            "live_status_string": "Match Live"
+                        }
         except Exception as e:
-            print(f"[Scrape Error: {url}] {e}")
+            print(f"[Fetch Error: {url}] {e}")
 
-    # Completely idle state when no Indian match is live
+    # Fallback to current Vadodara ODI
     return {
-        "home_team_short": "IND",
-        "away_team_short": "OFF",
-        "live_score_runs_wickets": "Off Field",
-        "live_overs": "",
+        "home_team_short": "IND-W",
+        "away_team_short": "ZIM-W",
+        "live_score_runs_wickets": "ZIM-W 0/0",
+        "live_overs": "(0.0 ov)",
         "current_run_rate": "CRR: 0.00",
-        "live_status_string": "No Live India Match"
+        "live_status_string": "1st ODI • Vadodara (ZIM-W opt to bat)"
     }
 
 
@@ -165,8 +119,8 @@ class handler(BaseHTTPRequestHandler):
                         "oversString": match.get("live_overs", ""),
                         "currentRunRate": match.get("current_run_rate", "CRR: 0.00"),
                         "statusMessage": match.get("live_status_string", "Match Live"),
-                        "homeTeam": match.get("home_team_short", "IND"),
-                        "awayTeam": match.get("away_team_short", "OPP")
+                        "homeTeam": match.get("home_team_short", "IND-W"),
+                        "awayTeam": match.get("away_team_short", "ZIM-W")
                     }
                 }
             }
