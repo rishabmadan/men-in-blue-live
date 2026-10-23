@@ -13,9 +13,10 @@ def fetch_live_cricket_match() -> dict:
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
 
+    # Live sources for today (Vadodara ODI & live feeds)
     sources = [
+        "https://timesofindia.indiatimes.com/sports/cricket/india-women-vs-zimbabwe-women-1st-odi-2026-live-score-cricket-match-today-scorecard-smriti-mandhana/liveblog/135139627.cms",
         "https://sports.ndtv.com/cricket/live-scores",
-        "https://timesofindia.indiatimes.com/india-tour-of-new-zealand-2026-newzealand-vs-india-live-cricket-score/scorecard/matchfile-nzin10222026271646.cms",
         "https://indianexpress.com/section/sports/cricket/live-score/"
     ]
 
@@ -28,51 +29,60 @@ def fetch_live_cricket_match() -> dict:
                 clean = re.sub(r'<[^>]+>', ' ', raw_html)
                 clean = re.sub(r'\s+', ' ', clean)
 
-                # Match all team scores on the page
-                pattern = r'\b(New Zealand|NZ|India|IND)\b\s*[:\-]?\s*(\d+/\d+)\s*\(([\d\.]+)(?:\s*ov)?\)'
+                # Match India Women vs Zimbabwe Women or any active India match
+                # Matches: "Zimbabwe Women 4/0 (0.5 ov)" or "ZIM-W 12/0 (2.0)"
+                pattern = r'\b(Zimbabwe(?:\s*Women)?|ZIM-?W|India(?:\s*Women)?|IND-?W|NZ|New Zealand)\b\s*[:\-]?\s*(\d+/\d+|\d+)\s*\(([\d\.]+)(?:\s*ov)?\)'
                 matches = re.findall(pattern, clean, re.I)
-                
+
                 if matches:
-                    # In a chase, the ACTIVE innings is always the LAST score listed on the page!
-                    active_match = matches[-1]
-                    team_raw = active_match[0].upper()
-                    batting_team = "NZ" if ("NEW" in team_raw or "NZ" in team_raw) else "IND"
-                    score = active_match[1]
-                    overs = active_match[2].strip()
+                    active = matches[-1]
+                    team_raw = active[0].upper()
+                    
+                    if "ZIM" in team_raw:
+                        batting_team = "ZIM-W"
+                        opponent = "ZIM-W"
+                        home_team = "IND-W"
+                    elif "IND" in team_raw:
+                        batting_team = "IND-W"
+                        opponent = "ZIM-W"
+                        home_team = "IND-W"
+                    elif "NEW" in team_raw or "NZ" in team_raw:
+                        batting_team = "NZ"
+                        opponent = "NZ"
+                        home_team = "IND"
+                    else:
+                        batting_team = team_raw
+                        opponent = "OPP"
+                        home_team = "IND"
+
+                    score = active[1]
+                    if '/' not in score:
+                        score = f"{score}/0"
+                    overs = active[2].strip()
 
                     runs = int(score.split('/')[0])
                     overs_float = float(overs) if overs and float(overs) > 0 else 1.0
                     crr = round(runs / overs_float, 2)
 
-                    status_str = "1st T20I • Christchurch"
-                    # If India is batting (chasing 226)
-                    if batting_team == "IND":
-                        needed = max(226 - runs, 0)
-                        parts = overs.split('.')
-                        balls_played = (int(parts[0]) * 6) + (int(parts[1]) if len(parts) > 1 else 0)
-                        balls_left = max(120 - balls_played, 1)
-                        rrr = round((needed / balls_left) * 6, 2)
-                        status_str = f"IND need {needed} from {balls_left}b (RRR: {rrr})"
-
                     return {
-                        "home_team_short": "IND",
-                        "away_team_short": "NZ",
+                        "home_team_short": home_team,
+                        "away_team_short": opponent,
                         "live_score_runs_wickets": f"{batting_team} {score}",
                         "live_overs": f"({overs} ov)",
                         "current_run_rate": f"CRR: {crr}",
-                        "live_status_string": status_str
+                        "live_status_string": "1st ODI • Vadodara (ZIM-W bat first)"
                     }
         except Exception as e:
             print(f"[Scrape Error: {url}] {e}")
 
-    # Fallback
+    # Fallback for 1st ODI Vadodara (Match starting right now)
     return {
-        "home_team_short": "IND",
-        "away_team_short": "NZ",
-        "live_score_runs_wickets": "IND 104/1",
-        "live_overs": "(7.2 ov)",
-        "current_run_rate": "CRR: 14.18",
-        "live_status_string": "IND need 122 from 76b"
+        "home_team_short": "IND-W",
+        "away_team_short": "ZIM-W",
+        "live_score_runs_wickets": "ZIM-W 0/0",
+        "live_overs": "(0.0 ov)",
+        "current_run_rate": "CRR: 0.00",
+        "live_status_string": "1st ODI • Vadodara (ZIM-W bat first)"
     }
 
 
@@ -99,8 +109,8 @@ class handler(BaseHTTPRequestHandler):
                         "oversString": match.get("live_overs", ""),
                         "currentRunRate": match.get("current_run_rate", "CRR: 0.00"),
                         "statusMessage": match.get("live_status_string", "Match Live"),
-                        "homeTeam": match.get("home_team_short", "IND"),
-                        "awayTeam": match.get("away_team_short", "NZ")
+                        "homeTeam": match.get("home_team_short", "IND-W"),
+                        "awayTeam": match.get("away_team_short", "ZIM-W")
                     }
                 }
             }
